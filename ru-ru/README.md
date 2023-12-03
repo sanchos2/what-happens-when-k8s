@@ -59,30 +59,30 @@ OK, давайте начнем. Мы только что нажали Enter в 
 
 ### API groups and version negotiation
 
-What's worth pointing out before we continue is that Kubernetes uses a _versioned_ API that is categorised into "API groups". An API group is meant to categorise similar resources so that they're easier to reason about. It also provides a better alternative to a singular monolithic API. The API group of a Deployment is named `apps`, and its most recent version is `v1`. This is why you need type `apiVersion: apps/v1` at the top of your Deployment manifests.
+Прежде чем мы продолжим, стоит отметить, что Kubernetes использует версионированный API, который разделен на «группы API». Группа API предназначена для категоризации схожих ресурсов, чтобы о них было легче рассуждать. Он также обеспечивает лучшую альтернативу монолитному API. Группа API deployment называется `apps`, и его самая последняя версия `v1`. Вот почему вам нужен тип `apiVersion: apps/v1` в верхней части ваших манифестов deployment.
 
-Anyhow... After kubectl generates the runtime object, it starts to [find the appropriate API group and version](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L674-L686) for it and then [assembles a versioned client](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L705-L708) that is aware of the various REST semantics for the resource. This discovery stage is called version negotiation and involves kubectl scanning the `/apis` path on the remote API to retrieve all possible API groups. Since kube-apiserver exposes its schema document (in OpenAPI format) at this path, it's easy for clients to perform their own discovery.
+После того как kubectl сгенерирует runtime object, он начинает [поиск подходящей API группы и версии](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L674-L686) для этого и тогда [собирает версионный клиент](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L705-L708) который знает о различной семантике REST для искомого ресурса. Этот этап обнаружения называется согласованием версии и включает в себя сканирование kubectl `/apis` путей к удаленному API для получения всех возможных групп API. Поскольку kube-apiserver предоставляет свой документ схемы (в формате OpenAPI) по этому пути, клиентам легко выполнить собственное обнаружение.
 
-To improve performance, kubectl also [caches the OpenAPI schema](https://github.com/kubernetes/kubernetes/blob/v1.14.0/staging/src/k8s.io/cli-runtime/pkg/genericclioptions/config_flags.go#L234) to the `~/.kube/cache/discovery` directory. If you want to see this API discovery in action, try deleting that directory and running a command with the `-v` flag turned to the max. You'll see all the HTTP requests which are trying to find those API versions. There are lots!
+Чтобы улучшить производительность, kubectl также [кеширует схему OpenAPI](https://github.com/kubernetes/kubernetes/blob/v1.14.0/staging/src/k8s.io/cli-runtime/pkg/genericclioptions/config_flags.go#L234) в `~/.kube/cache/discovery` директорию. Если вы хотите увидеть обнаружение API в действии, попробуйте удалить этот каталог и запустить команду с `-v` флагом. Вы увидите все HTTP-запросы, которые пытаются найти эти версии API. Их много!
 
-The final step is to actually [send](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L709) the HTTP request. Once it does so and gets back a successful response, kubectl will then print out a success message [based on the desired output format](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L459).
+Последний шаг – это фактическая [отправка](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L709) HTTP запроса. Как только это произойдет и придет успешный ответ, kubectl распечатает сообщение об успехе. [на основе желаемого формата вывода](https://github.com/kubernetes/kubernetes/blob/v1.14.0/pkg/kubectl/cmd/run/run.go#L459).
 
 ### Client auth
 
-One thing that we didn't mention in the previous step is client authentication (this is handled before the HTTP request is sent), so let's look at that now.
+Одна вещь, о которой мы не упомянули на предыдущем шаге, — это аутентификация клиента (она обрабатывается до отправки HTTP-запроса), поэтому давайте посмотрим на это сейчас.
 
-In order to send the request successfully, kubectl needs to be able to authenticate. User credentials are almost always stored in the `kubeconfig` file which resides on disk, but that file can be stored in different locations. To locate it, kubectl does the following:
+Чтобы успешно отправить запрос, kubectl должен иметь возможность аутентификации. Учетные данные пользователя почти всегда хранятся в `kubeconfig` файле, который находится на диске, но этот файл может храниться в разных местах. Чтобы найти его, kubectl делает следующее:
 
-- if a `--kubeconfig` flag is provided, use that.
-- if the `$KUBECONFIG` environment variable is defined, use that.
-- otherwise look in the [recommended home directory](https://github.com/kubernetes/client-go/blob/release-1.21/tools/clientcmd/loader.go#L43) like `~/.kube`, and use the first file found.
+- если `--kubeconfig` флаг определен, он используется.
+- если `$KUBECONFIG` переменная окружения опеределена, используется она.
+- в противном случае посмотрит в [рекомендуемый домашний каталог](https://github.com/kubernetes/client-go/blob/release-1.21/tools/clientcmd/loader.go#L43) такой как `~/.kube`, и использует первый найденный файл.
 
-After parsing the file, it then determines the current context to use, the current cluster to point to, and any auth information associated with the current user. If the user provided flag-specific values (such as `--username`) these take precedence and will override those specified in kubeconfig. Once it has this information, kubectl populates the client's configuration so that it is able to decorate the HTTP request appropriately:
+После анализа файла kubectl определит текущий контекст, который будет использоваться, текущий кластер, на который указывает контекст, и любую информацию аутентификации, связанную с текущим пользователем.. Если пользователь предоставил специфичные флаги (такие как `--username`) они имеют приоритет и переопределяют те, которые указаны в kubeconfig. Получив эту информацию, kubectl заполняет конфигурацию клиента, чтобы он мог соответствующим образом оформить HTTP-запрос:
 
-- x509 certificates are sent using [`tls.TLSConfig`](https://github.com/kubernetes/client-go/blob/82aa063804cf055e16e8911250f888bc216e8b61/rest/transport.go#L80-L89) (this also includes the root CA)
-- bearer tokens are [sent](https://github.com/kubernetes/client-go/blob/c6f8cf2c47d21d55fa0df928291b2580544886c8/transport/round_trippers.go#L314) in the "Authorization" HTTP header
-- username and password are [sent](https://github.com/kubernetes/client-go/blob/c6f8cf2c47d21d55fa0df928291b2580544886c8/transport/round_trippers.go#L223) via HTTP basic authentication
-- the OpenID auth process is handled manually by the user beforehand, producing a token which is sent like a bearer token
+- x509 сертификаты отправляются с помощью [`tls.TLSConfig`](https://github.com/kubernetes/client-go/blob/82aa063804cf055e16e8911250f888bc216e8b61/rest/transport.go#L80-L89) (это также включает корневой центр сертификации)
+- bearer tokens [отправляются](https://github.com/kubernetes/client-go/blob/c6f8cf2c47d21d55fa0df928291b2580544886c8/transport/round_trippers.go#L314) в "Authorization" HTTP заголовке
+- имя пользователя и пароль [отправляется](https://github.com/kubernetes/client-go/blob/c6f8cf2c47d21d55fa0df928291b2580544886c8/transport/round_trippers.go#L223) через HTTP basic authentication
+- процесс аутентификации OpenID заранее обрабатывается пользователем вручную, создавая токен, который отправляется как bearer tokens
 
 ## kube-apiserver
 
